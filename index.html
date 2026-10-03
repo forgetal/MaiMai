@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.json">
+<title>麦麦控制台</title>
+<style>
+:root{--bg:#f0f2f5;--sb:#fff;--cb:#fff;--tx:#333;--bd:#e0e0e0;--ub:#007bff;--ut:#fff;--ab:#f1f1f1;--at:#333;--bp:#007bff}
+[data-theme="dark"]{--bg:#121212;--sb:#1e1e1e;--cb:#121212;--tx:#f5f5f5;--bd:#3a3a3a;--ub:#0056b3;--ab:#3a3a3a;--at:#fff;--bp:#0056b3}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;padding:0;overflow:hidden}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--tx);display:flex;height:100dvh;transition:background .3s,color .3s;user-select:none}
+#sidebar{width:280px;background:var(--sb);border-right:1px solid var(--bd);display:flex;flex-direction:column;padding:15px;overflow-y:auto;flex-shrink:0;transition:transform .3s}
+@media(max-width:768px){body{flex-direction:column}#sidebar{position:fixed;left:0;top:0;bottom:0;width:80%;max-width:300px;z-index:1000;transform:translateX(-105%);box-shadow:2px 0 10px rgba(0,0,0,.1)}#sidebar.open{transform:translateX(0)}#overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:999}#overlay.open{display:block}}
+.session-list{flex:1;overflow-y:auto;margin:15px 0}
+.session-item{padding:10px;border-radius:6px;cursor:pointer;margin-bottom:5px;font-size:14px;display:flex;justify-content:space-between;align-items:center;background:var(--bg);border:1px solid transparent}
+.session-item.active{border-color:var(--bp);background:var(--cb)}
+.session-item .delete-btn{color:#888;cursor:pointer;font-size:12px;padding:5px}
+.form-group{margin-bottom:15px}
+.form-group label{display:block;font-size:12px;color:#888;margin-bottom:5px}
+.form-group input,.form-group textarea{width:100%;padding:8px;border:1px solid var(--bd);border-radius:6px;font-size:13px;background:var(--bg);color:var(--tx)}
+.btn{padding:10px 18px;background:var(--bp);color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer;width:100%;margin-bottom:10px;transition:opacity .2s}
+.btn:active{opacity:.7}
+#main{flex:1;display:flex;flex-direction:column;overflow:hidden;background:var(--cb)}
+#header{display:flex;justify-content:space-between;align-items:center;padding:10px 15px;border-bottom:1px solid var(--bd)}
+#menu-btn{display:none;background:none;border:none;font-size:24px;cursor:pointer;color:var(--tx)}
+@media(max-width:768px){#menu-btn{display:block}}
+#chat-messages{flex:1;overflow-y:auto;padding:15px;-webkit-overflow-scrolling:touch}
+.msg{margin-bottom:15px;display:flex;flex-direction:column}
+.msg.user{align-items:flex-end}.msg.ai{align-items:flex-start}
+.bubble{max-width:85%;padding:10px 14px;border-radius:15px;font-size:15px;line-height:1.4;word-wrap:break-word;cursor:pointer}
+.user .bubble{background:var(--ub);color:var(--ut);border-bottom-right-radius:3px}
+.ai .bubble{background:var(--ab);color:var(--at);border-bottom-left-radius:3px}
+.bubble img{max-width:100%;border-radius:8px;margin-top:5px;display:block}
+.msg-actions{display:flex;gap:8px;margin-top:5px;font-size:12px;align-items:center}
+.msg-actions button{background:none;border:1px solid var(--bd);color:var(--tx);cursor:pointer;padding:2px 8px;border-radius:4px;font-size:12px}
+.branch-info{font-size:12px;color:#888;margin-right:5px}
+#input-area{display:flex;padding:10px 15px;border-top:1px solid var(--bd);background:var(--cb);gap:8px;align-items:flex-end}
+#text-input{flex:1;padding:12px;border:1px solid var(--bd);border-radius:20px;outline:none;font-size:15px;resize:none;max-height:100px;background:var(--bg);color:var(--tx)}
+#send-btn{padding:10px 18px;background:var(--bp);color:#fff;border:none;border-radius:20px;font-size:15px;cursor:pointer;white-space:nowrap}
+#send-btn:disabled{opacity:.5;cursor:not-allowed}
+</style>
+</head>
+<body>
+<div id="overlay" onclick="toggleSidebar()"></div>
+<div id="sidebar">
+<div style="display:flex;justify-content:space-between;align-items:center;">
+<h3 style="margin:0;font-size:18px;">⚙️ 麦麦控制台</h3>
+<button onclick="toggleTheme()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--tx);">🌓</button>
+</div>
+<button class="btn" onclick="createNewSession()" style="margin-top:15px;">➕ 新建会话</button>
+<div class="session-list" id="session-list"></div>
+<button class="btn" onclick="exportChats()" style="background:#28a745;margin-top:10px;">📤 导出备份</button>
+<button class="btn" onclick="document.getElementById('import-file').click()" style="background:#ffc107;color:#000;">📥 导入恢复</button>
+<input type="file" id="import-file" accept=".json" style="display:none;" onchange="importChats(event)">
+<div class="form-group" style="margin-top:15px;">
+<label>API Key (sk-开头，请去官网生成新Key)</label>
+<input type="password" id="apiKey" placeholder="填入最新 Key" onchange="saveSettings()">
+</div>
+<div class="form-group">
+<label>当前会话人格设定 (独立生效)</label>
+<textarea id="personality" rows="3" onchange="saveCurrentPersonality()">你是一个活泼可爱的女孩子，名叫麦麦。说话简短，喜欢开玩笑。</textarea>
+</div>
+<div class="form-group">
+<label>回复温度 (0.1严谨 ~ 1.5发散)</label>
+<input type="number" id="temperature" value="0.7" step="0.1" min="0.1" max="1.5" onchange="saveSettings()">
+</div>
+<div style="font-size:11px;color:#888;margin-top:10px;">提示：长按会话可改名，点击自己的气泡可修改重发。</div>
+</div>
+<div id="main">
+<div id="header">
+<div style="display:flex;align-items:center;gap:10px;">
+<button id="menu-btn" onclick="toggleSidebar()">☰</button>
+<h3 style="margin:0;font-size:17px;" id="session-title">💬 麦麦</h3>
+</div>
+<div style="display:flex;align-items:center;gap:10px;">
+<select id="mode-select" onchange="toggleMode()" style="padding:5px;border-radius:6px;background:var(--bg);color:var(--tx);border:1px solid var(--bd);">
+<option value="chat">💬 纯文本</option>
+<option value="vision">🖼️ 识图</option>
+<option value="image">🎨 画画</option>
+</select>
+</div>
+</div>
+<div id="chat-messages"></div>
+<input type="file" id="file-upload" accept="image/*" style="display:none;padding:5px;" onchange="previewImage(event)">
+<div id="input-area">
+<input type="text" id="text-input" placeholder="输入消息..." onkeypress="if(event.key==='Enter') sendMsg()">
+<button id="send-btn" onclick="sendMsg()">发送</button>
+</div>
+</div>
+<script>
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').then(() => console.log('SW Registered')).catch(err => console.log('SW failed', err));
+}
+let sessions=JSON.parse(localStorage.getItem('maibot_sessions_v7'))||null;
+let currentSessionId=localStorage.getItem('maibot_current_session_v7')||'default';
+let base64Image=null,isSending=false,isRegenerating=false;
+if(!sessions){
+const oldV6=JSON.parse(localStorage.getItem('maibot_sessions_v6'));
+const dp="你是一个活泼可爱的女孩子，名叫麦麦。说话简短，喜欢开玩笑。";
+if(oldV6){sessions=oldV6;}
+else{sessions={'default':{id:'default',title:'新会话',history:[{role:"ai",content:"你好呀！我是麦麦，欢迎使用全新的控制台！"}],personality:dp,summary:""}};}
+}
+Object.values(sessions).forEach(s=>{if(!s.summary)s.summary=""});
+window.onload=function(){
+if(localStorage.getItem('maibot_key'))document.getElementById('apiKey').value=localStorage.getItem('maibot_key');
+if(localStorage.getItem('maibot_temp'))document.getElementById('temperature').value=localStorage.getItem('maibot_temp');
+if(localStorage.getItem('maibot_theme')==='dark')document.body.setAttribute('data-theme','dark');
+if(sessions[currentSessionId])document.getElementById('personality').value=sessions[currentSessionId].personality;
+renderSidebar();renderChat();
+};
+function saveSettings(){localStorage.setItem('maibot_key',document.getElementById('apiKey').value);localStorage.setItem('maibot_temp',document.getElementById('temperature').value);}
+function saveCurrentPersonality(){if(sessions[currentSessionId]){sessions[currentSessionId].personality=document.getElementById('personality').value;saveSessions();}}
+function saveSessions(){localStorage.setItem('maibot_sessions_v7',JSON.stringify(sessions));localStorage.setItem('maibot_current_session_v7',currentSessionId);}
+function toggleTheme(){const d=document.body.getAttribute('data-theme')==='dark';d?document.body.removeAttribute('data-theme'):document.body.setAttribute('data-theme','dark');localStorage.setItem('maibot_theme',d?'light':'dark');}
+function toggleSidebar(){document.getElementById('sidebar').classList.toggle('open');document.getElementById('overlay').classList.toggle('open');}
+function createNewSession(){
+saveCurrentPersonality();const id='session_'+Date.now();const dp="你是一个活泼可爱的女孩子，名叫麦麦。说话简短，喜欢开玩笑。";
+sessions[id]={id:id,title:'新会话',history:[{role:"ai",content:"你好呀！我是麦麦，我们来聊点新话题吧！"}],personality:dp,summary:""};
+currentSessionId=id;saveSessions();renderSidebar();renderChat();document.getElementById('personality').value=dp;
+if(window.innerWidth<=768)toggleSidebar();
+}
+function switchSession(id){
+if(currentSessionId===id)return;saveCurrentPersonality();currentSessionId=id;saveSessions();
+document.getElementById('personality').value=sessions[currentSessionId].personality;renderSidebar();renderChat();
+if(window.innerWidth<=768)toggleSidebar();
+}
+function renameSession(id){const nn=prompt("请输入新的会话名称：",sessions[id].title);if(nn&&nn.trim()!==""){sessions[id].title=nn.trim();saveSessions();renderSidebar();}}
+function deleteSession(e,id){
+e.stopPropagation();if(confirm("确定要删除这个会话吗？")){delete sessions[id];
+if(currentSessionId===id){currentSessionId=Object.keys(sessions)[0]||null;if(!currentSessionId)return createNewSession();}
+saveSessions();renderSidebar();renderChat();if(sessions[currentSessionId])document.getElementById('personality').value=sessions[currentSessionId].personality;}
+}
+function renderSidebar(){
+const list=document.getElementById('session-list');list.innerHTML='';
+Object.values(sessions).forEach(s=>{
+const item=document.createElement('div');item.className=`session-item ${s.id===currentSessionId?'active':''}`;
+item.onclick=()=>switchSession(s.id);
+let pt;item.addEventListener('touchstart',(e)=>{pt=setTimeout(()=>{renameSession(s.id);e.preventDefault();},600);},{passive:false});
+item.addEventListener('touchend',()=>clearTimeout(pt));item.addEventListener('touchmove',()=>clearTimeout(pt));
+item.addEventListener('contextmenu',(e)=>{e.preventDefault();renameSession(s.id);});
+item.innerHTML=`<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📄 ${s.title}</span> <span class="delete-btn" onclick="deleteSession(event, '${s.id}')">✖</span>`;
+list.appendChild(item);if(s.id===currentSessionId)document.getElementById('session-title').innerText='💬 '+s.title;});
+}
+function renderChat(){
+const cd=document.getElementById('chat-messages');cd.innerHTML='';const h=sessions[currentSessionId].history;
+h.forEach((m,i)=>{
+const div=document.createElement('div');div.className=`msg ${m.role==='user'?'user':'ai'}`;let ah='';
+if(m.alternatives&&m.alternatives.length>1){ah+=`<div class="msg-actions"><button onclick="changeBranch(${i},-1)">◀</button><span class="branch-info">${m.currentIndex+1}/${m.alternatives.length}</span><button onclick="changeBranch(${i},1)">▶</button></div>`;}
+if(m.role==='ai'&&i===h.length-1){ah+=`<div class="msg-actions"><button onclick="regenerateMessage()">🔄 重新生成</button></div>`;}
+if(m.role==='user'&&i===h.length-1){ah+=`<div class="msg-actions"><button onclick="editUserMessage(${i})">✏️ 编辑</button></div>`;}
+div.innerHTML=`<div class="bubble" onclick="editUserMessage(${i})">${m.content}</div>${ah}`;cd.appendChild(div);});
+cd.scrollTop=cd.scrollHeight;
+}
+function changeBranch(i,d){
+const h=sessions[currentSessionId].history;const m=h[i];if(!m.alternatives||m.alternatives.length<=1)return;
+const ct=h.splice(i+1);if(!m.branchHistories)m.branchHistories={};m.branchHistories[m.currentIndex]=ct;
+m.currentIndex+=d;if(m.currentIndex<0)m.currentIndex=m.alternatives.length-1;if(m.currentIndex>=m.alternatives.length)m.currentIndex=0;
+m.content=m.alternatives[m.currentIndex];const nt=m.branchHistories[m.currentIndex]||[];h.push(...nt);saveSessions();renderChat();
+}
+function editUserMessage(i){
+const h=sessions[currentSessionId].history;const m=h[i];if(m.role!=='user')return;
+const ct=h.splice(i+1);if(!m.branchHistories)m.branchHistories={};m.branchHistories[m.currentIndex]=ct;
+const ot=m.content;const cot=ot.replace(/<img[^>]*>/g,'').replace('[已上传图片]','').trim();const nt=prompt("修改你的消息：",cot);
+if(nt===null||nt.trim()===cot){h.push(...ct);return;}
+if(!m.alternatives)m.alternatives=[ot];let ei=m.alternatives.indexOf(nt);if(ei===-1){m.alternatives.push(nt);ei=m.alternatives.length-1;}
+m.currentIndex=ei;m.content=nt;const nt2=m.branchHistories[m.currentIndex]||[];h.push(...nt2);saveSessions();renderChat();
+if(nt2.length===0)sendMsgCore(nt,null,false);
+}
+async function regenerateMessage(){
+if(isRegenerating)return;const h=sessions[currentSessionId].history;
+if(h.length<2||h[h.length-1].role!=='ai')return;
+isRegenerating=true;document.getElementById('send-btn').disabled=true;renderChat();
+const la=h[h.length-1];const lu=h[h.length-2];let id=null,t=lu.content;
+if(t.includes('<img')){const mt=t.match(/<img src="([^"]+)"/);if(mt)id=mt[1];t=t.replace(/<img[^>]*>/g,'').replace('[已上传图片]','').trim();}
+h.pop();
+if(!la.alternatives){la.alternatives=[la.content];la.currentIndex=0;}
+const nr=await fetchAPI(t,id);
+if(nr.startsWith("请求失败")||nr.startsWith("网络出错")||nr.startsWith("画图失败")||nr.trim()===""){h.push(la);alert("生成失败，请检查模型设置或网络。");isRegenerating=false;document.getElementById('send-btn').disabled=false;renderChat();return;}
+h.push(la);la.alternatives.push(nr);la.currentIndex=la.alternatives.length-1;la.content=nr;
+isRegenerating=false;document.getElementById('send-btn').disabled=false;saveSessions();renderChat();
+}
+async function sendMsg(){
+if(isSending)return;const ti=document.getElementById('text-input');const t=ti.value.trim();const m=document.getElementById('mode-select').value;
+if(!t&&!base64Image)return;isSending=true;document.getElementById('send-btn').disabled=true;
+let uc=t;if(m==='vision'&&base64Image){uc=t?`${t}<br><img src="${base64Image}" style="max-width:150px;">`:`[已上传图片]<br><img src="${base64Image}" style="max-width:150px;">`;}
+sessions[currentSessionId].history.push({role:"user",content:uc,alternatives:[uc],currentIndex:0});saveSessions();renderChat();
+const ci=base64Image;ti.value='';base64Image=null;document.getElementById('file-upload').value='';
+if(sessions[currentSessionId].history.length===2){sessions[currentSessionId].title=t.substring(0,10)||"图片会话";renderSidebar();}
+await sendMsgCore(t,ci,true);isSending=false;document.getElementById('send-btn').disabled=false;
+}
+async function sendMsgCore(t,id,pu=false){
+const ar=await fetchAPI(t,id);
+if(ar.startsWith("请求失败")||ar.startsWith("网络出错")||ar.startsWith("画图失败")){alert("请求失败："+ar);if(pu)sessions[currentSessionId].history.pop();saveSessions();renderChat();return;}
+sessions[currentSessionId].history.push({role:"ai",content:ar,alternatives:[ar],currentIndex:0});saveSessions();renderChat();
+if(sessions[currentSessionId].history.length>20&&!isRegenerating)summarizeMemory();
+}
+async function summarizeMemory(){
+const h=sessions[currentSessionId].history;const ak=document.getElementById('apiKey').value;if(!ak)return;
+const ts=h.slice(0,-10).map(m=>`${m.role==='user'?'用户':'麦麦'}: ${m.content.replace(/<img[^>]*>/g,'[图片]').replace(/<br>/g,' ')}`).join('\n');
+const cs=sessions[currentSessionId].summary||"";const p=`请将以下对话与已有记忆结合，浓缩成一段不超过300字的长期记忆总结。保留用户个人信息（名字、喜好）和重要事件。直接输出总结，不要客套话。\n\n已有记忆：${cs}\n\n新对话：\n${ts}`;
+try{
+const r=await fetch("https://api.siliconflow.cn/v1/chat/completions",{method:"POST",headers:{"Authorization":"Bearer "+ak,"Content-Type":"application/json"},body:JSON.stringify({model:"deepseek-ai/DeepSeek-V3",messages:[{role:"user",content:p}],temperature:0.3})});
+const d=await r.json();if(d.choices&&d.choices.length>0){sessions[currentSessionId].summary=d.choices[0].message.content;saveSessions();console.log("记忆已更新:",sessions[currentSessionId].summary);}
+}catch(e){console.log("记忆总结失败:",e);}
+}
+function previewImage(e){const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=function(ev){base64Image=ev.target.result;renderChat();};r.readAsDataURL(f);}
+function toggleMode(){
+const m=document.getElementById('mode-select').value;document.getElementById('file-upload').style.display=m==='vision'?'block':'none';
+document.getElementById('text-input').placeholder=m==='image'?'描述你想画的画面...':'输入消息...';
+if(m!=='vision'){base64Image=null;document.getElementById('file-upload').value='';}renderChat();
+}
+async function fetchAPI(t,id){
+const m=document.getElementById('mode-select').value;const ak=document.getElementById('apiKey').value;if(!ak)return alert("请先在左侧菜单填入你的 API Key！");
+if(m==='image'){
+try{const r=await fetch("https://api.siliconflow.cn/v1/images/generations",{method:"POST",headers:{"Authorization":"Bearer "+ak,"Content-Type":"application/json"},body:JSON.stringify({model:"Tongyi-MAI/Z-Image-Turbo",prompt:t||"一只可爱的猫",image_size:"1024x1024"})});
+const d=await r.json();if(d.images&&d.images.length>0)return `<img src="${d.images[0].url}">`;return "画图失败: "+JSON.stringify(d);}catch(e){return "画图出错，请检查网络。";}
+}
+const ltm=sessions[currentSessionId].summary||"（暂无历史记忆）";const sp=sessions[currentSessionId].personality+`\n\n[你脑海深处的长期记忆]:\n${ltm}`;
+const msgs=[{role:"system",content:sp}];
+sessions[currentSessionId].history.slice(-10).forEach(m=>{
+let c=m.content.replace(/<img[^>]*>/g,'').replace('[已上传图片]','').trim();
+if(m.role==='user'&&m.content.includes('<img'))c=c?c+" [附带图片]":"[发送了图片]";
+if(c)msgs.push({role:m.role==='ai'?'assistant':'user',content:c});
+});
+if(m==='vision'&&id){msgs.pop();msgs.push({role:"user",content:[{type:"text",text:t||"请描述这张图片。"},{type:"image_url",image_url:{url:id}}]});}
+try{
+let mn="deepseek-ai/DeepSeek-V3";if(m==='vision')mn="Qwen/Qwen3.8-27B";
+const r=await fetch("https://api.siliconflow.cn/v1/chat/completions",{method:"POST",headers:{"Authorization":"Bearer "+ak,"Content-Type":"application/json"},body:JSON.stringify({model:mn,messages:msgs,temperature:parseFloat(document.getElementById('temperature').value)})});
+const d=await r.json();if(d.choices&&d.choices.length>0)return d.choices[0].message.content;return "请求失败: "+JSON.stringify(d);
+}catch(e){return "网络出错，请检查网络或API Key。";}
+}
+function exportChats(){
+const ds="data:text/json;charset=utf-8,"+encodeURIComponent(JSON.stringify(sessions));
+const da=document.createElement('a');da.setAttribute("href",ds);da.setAttribute("download","maibot_backup_"+new Date().toISOString().slice(0,10)+".json");
+document.body.appendChild(da);da.click();da.remove();
+}
+function importChats(e){
+const f=e.target.files[0];if(!f)return;const r=new FileReader();
+r.onload=function(ev){
+try{const is=JSON.parse(ev.target.result);if(confirm("确定要覆盖当前的所有聊天记录吗？")){sessions=is;currentSessionId=Object.keys(sessions)[0]||'default';saveSessions();renderSidebar();renderChat();document.getElementById('personality').value=sessions[currentSessionId].personality||"";alert("导入成功！");}}
+catch(err){alert("文件解析失败，请确保是之前导出的备份文件。");}
+};r.readAsText(f);
+}
+</script>
+</body>
+</html>
